@@ -1,11 +1,13 @@
-﻿const CACHE_NAME = "lightning-slideshow-v1";
+﻿const CACHE_NAME = "lightning-slideshow-v2";
 const ASSETS = [
   "./",
   "./index.html",
   "./style.css",
   "./app.js",
   "./manifest.webmanifest",
-  "./icons/icon.svg"
+  "./icons/icon.svg",
+  "./vendor/pdfjs/pdf.min.js",
+  "./vendor/pdfjs/pdf.worker.min.js"
 ];
 
 self.addEventListener("install", event => {

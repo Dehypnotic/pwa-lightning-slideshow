@@ -12,6 +12,14 @@ const loader = document.getElementById("loader");
 const stage = document.getElementById("stage");
 const stageImage = document.getElementById("stage-image");
 
+const pdfjsGlobal = typeof window !== "undefined" ? window.pdfjsLib : undefined;
+const pdfSupported = Boolean(pdfjsGlobal);
+if (pdfSupported) {
+  pdfjsGlobal.GlobalWorkerOptions.workerSrc = "vendor/pdfjs/pdf.worker.min.js";
+} else {
+  console.warn("PDF.js ble ikke lastet – PDF-støtte er deaktivert.");
+}
+
 let imageEntries = [];
 const imageSignatures = new Set();
 let slideshowTimeout = null;
@@ -41,7 +49,7 @@ function updateDropZoneMessage() {
   }
 }
 
-function showStatus(message, revert = true) {
+function showStatus(message, revert = true, duration = 2400) {
   if (statusTimeout) {
     clearTimeout(statusTimeout);
     statusTimeout = null;
@@ -53,11 +61,11 @@ function showStatus(message, revert = true) {
     statusTimeout = setTimeout(() => {
       statusTimeout = null;
       updateDropZoneMessage();
-    }, 2200);
+    }, duration);
   }
 }
 
-function extractImagesFromDataTransfer(data) {
+function collectFilesFromDataTransfer(data) {
   if (!data) {
     return [];
   }
@@ -82,38 +90,148 @@ function extractImagesFromDataTransfer(data) {
   return files;
 }
 
-function addFiles(files) {
-  if (!files || !files.length) {
+function addImageFile(file) {
+  const signature = fileSignature(file);
+  if (imageSignatures.has(signature)) {
     return 0;
   }
+  const url = URL.createObjectURL(file);
+  imageEntries.push({ url, signature, label: file.name || "Bilde" });
+  imageSignatures.add(signature);
+  return 1;
+}
 
-  const incoming = Array.from(files).filter(file => file.type.startsWith("image"));
-  if (!incoming.length) {
-    return 0;
-  }
-
-  let added = 0;
-  incoming.forEach(file => {
-    const signature = fileSignature(file);
-    if (imageSignatures.has(signature)) {
-      return;
-    }
-    const url = URL.createObjectURL(file);
-    imageEntries.push({ file, url, signature });
-    imageSignatures.add(signature);
-    added += 1;
+function canvasToBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => {
+      if (blob) {
+        resolve(blob);
+      } else {
+        reject(new Error("Kunne ikke opprette bilde fra PDF."));
+      }
+    }, "image/png");
   });
+}
 
-  if (!added) {
-    return 0;
+async function addPdfFile(file) {
+  if (!pdfSupported) {
+    return { added: 0, total: 0 };
   }
 
-  updateDropZoneMessage();
-  if (!isRunning) {
-    startBtn.disabled = imageEntries.length === 0;
+  const arrayBuffer = await file.arrayBuffer();
+  const loadingTask = pdfjsGlobal.getDocument({ data: arrayBuffer });
+  const pdfDoc = await loadingTask.promise;
+  const total = pdfDoc.numPages;
+  let added = 0;
+
+  try {
+    for (let pageNumber = 1; pageNumber <= total; pageNumber += 1) {
+      const pageSignature = `${fileSignature(file)}::page${pageNumber}`;
+      if (imageSignatures.has(pageSignature)) {
+        continue;
+      }
+
+      let page;
+      try {
+        page = await pdfDoc.getPage(pageNumber);
+      } catch (error) {
+        console.warn(`Kunne ikke hente side ${pageNumber} fra ${file.name}`, error);
+        continue;
+      }
+
+      const baseViewport = page.getViewport({ scale: 1 });
+      const maxDimension = Math.max(baseViewport.width, baseViewport.height);
+      const targetScale = Math.min(2.2, Math.max(1.2, 1400 / maxDimension));
+      const viewport = page.getViewport({ scale: targetScale });
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d", { alpha: false });
+
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+
+      try {
+        await page.render({ canvasContext: context, viewport }).promise;
+      } catch (renderError) {
+        console.warn(`Kunne ikke rendre side ${pageNumber} fra ${file.name}`, renderError);
+        continue;
+      }
+
+      let blob;
+      try {
+        blob = await canvasToBlob(canvas);
+      } catch (blobError) {
+        console.warn(`Kunne ikke lagre side ${pageNumber} som bilde`, blobError);
+        continue;
+      }
+
+      const url = URL.createObjectURL(blob);
+
+      imageEntries.push({
+        url,
+        signature: pageSignature,
+        label: `${file.name || "PDF"} – side ${pageNumber}`
+      });
+      imageSignatures.add(pageSignature);
+      added += 1;
+    }
+  } finally {
+    await pdfDoc.cleanup();
+    await pdfDoc.destroy();
   }
 
-  return added;
+  return { added, total };
+}
+
+async function addFiles(files) {
+  if (!files || !files.length) {
+    return { added: 0, supported: 0, unsupported: 0, pdfUnsupported: 0 };
+  }
+
+  const incoming = Array.from(files);
+  let added = 0;
+  let supported = 0;
+  let unsupported = 0;
+  let pdfUnsupported = 0;
+
+  for (const file of incoming) {
+    if (file.type.startsWith("image/")) {
+      supported += 1;
+      added += addImageFile(file);
+      continue;
+    }
+
+    if (file.type === "application/pdf") {
+      supported += 1;
+      if (!pdfSupported) {
+        pdfUnsupported += 1;
+        continue;
+      }
+
+      showStatus(`Behandler ${file.name || "PDF"} …`, false, 6000);
+      try {
+        const { added: pagesAdded } = await addPdfFile(file);
+        added += pagesAdded;
+      } catch (error) {
+        console.warn("Kunne ikke prosessere PDF", error);
+        showStatus(`Klarte ikke å lese ${file.name || "PDF"}.`);
+      }
+      continue;
+    }
+
+    unsupported += 1;
+  }
+
+  if (added) {
+    updateDropZoneMessage();
+    if (!isRunning) {
+      startBtn.disabled = imageEntries.length === 0;
+    }
+  } else if (!imageEntries.length) {
+    updateDropZoneMessage();
+    startBtn.disabled = true;
+  }
+
+  return { added, supported, unsupported, pdfUnsupported };
 }
 
 function syncDelayFromRange() {
@@ -152,6 +270,7 @@ function showNextImage() {
 
   const entry = imageEntries[currentIndex];
   stageImage.src = entry.url;
+  stageImage.alt = entry.label || "Slideshow bilde";
 
   currentIndex = (currentIndex + 1) % imageEntries.length;
   scheduleNextFrame();
@@ -173,7 +292,6 @@ async function startSlideshow() {
       await stage.requestFullscreen();
     }
   } catch (err) {
-    // Fullscreen might be blocked; continue regardless.
     console.warn("Fullscreen request failed", err);
   }
 
@@ -202,6 +320,7 @@ function stopSlideshow() {
   loader.classList.remove("hidden");
   stage.classList.add("hidden");
   stageImage.removeAttribute("src");
+  stageImage.removeAttribute("alt");
 
   clearTimers();
 
@@ -238,11 +357,29 @@ dropZone.addEventListener("dragleave", event => {
   dropZone.classList.remove("dragover");
 });
 
-dropZone.addEventListener("drop", event => {
+dropZone.addEventListener("drop", async event => {
   preventDefaults(event);
   dropZone.classList.remove("dragover");
-  const files = extractImagesFromDataTransfer(event.dataTransfer);
-  addFiles(files);
+  const files = collectFilesFromDataTransfer(event.dataTransfer);
+  const result = await addFiles(files);
+  const messages = [];
+  if (result.added > 0) {
+    messages.push(`La til ${result.added} bilde${result.added === 1 ? '' : 'r'}.`);
+  }
+  if (result.supported > 0 && result.added === 0 && !result.pdfUnsupported) {
+    messages.push("Alt var allerede lagt til.");
+  }
+  if (result.pdfUnsupported > 0) {
+    messages.push("PDF-støtte er ikke tilgjengelig i denne nettleseren.");
+  }
+  if (result.unsupported > 0) {
+    messages.push(`Hoppet over ${result.unsupported} fil${result.unsupported === 1 ? '' : 'er'} uten støtte.`);
+  }
+  if (messages.length) {
+    showStatus(messages.join(" "));
+  } else {
+    updateDropZoneMessage();
+  }
 });
 
 selectFilesBtn.addEventListener("click", () => {
@@ -250,12 +387,27 @@ selectFilesBtn.addEventListener("click", () => {
   fileInput.click();
 });
 
-fileInput.addEventListener("change", event => {
+fileInput.addEventListener("change", async event => {
   const files = event.target.files;
-  const added = addFiles(files);
+  const result = await addFiles(files);
   event.target.value = "";
-  if (!added) {
-    showStatus("Ingen nye bilder fra filvelgeren.");
+  const messages = [];
+  if (result.added > 0) {
+    messages.push(`La til ${result.added} bilde${result.added === 1 ? '' : 'r'}.`);
+  }
+  if (result.supported > 0 && result.added === 0 && !result.pdfUnsupported) {
+    messages.push("Ingen nye filer å legge til.");
+  }
+  if (result.pdfUnsupported > 0) {
+    messages.push("PDF-støtte er ikke tilgjengelig i denne nettleseren.");
+  }
+  if (result.unsupported > 0) {
+    messages.push(`Hoppet over ${result.unsupported} fil${result.unsupported === 1 ? '' : 'er'} uten støtte.`);
+  }
+  if (messages.length) {
+    showStatus(messages.join(" "));
+  } else {
+    updateDropZoneMessage();
   }
 });
 
@@ -265,19 +417,27 @@ resetBtn.addEventListener("click", resetGallery);
 delayRange.addEventListener("input", syncDelayFromRange);
 delayInput.addEventListener("input", syncDelayFromInput);
 
-document.addEventListener("paste", event => {
-  const files = extractImagesFromDataTransfer(event.clipboardData);
+document.addEventListener("paste", async event => {
+  const files = collectFilesFromDataTransfer(event.clipboardData);
   if (!files.length) {
     return;
   }
-
-  const added = addFiles(files);
   event.preventDefault();
-  if (added) {
-    showStatus(`La til ${added} bilde${added === 1 ? '' : 'r'} fra utklippstavlen.`);
-  } else {
-    showStatus("Bildene er allerede lagt til.");
+  const result = await addFiles(files);
+  const messages = [];
+  if (result.added > 0) {
+    messages.push(`La til ${result.added} bilde${result.added === 1 ? '' : 'r'} fra utklippstavlen.`);
   }
+  if (result.supported > 0 && result.added === 0 && !result.pdfUnsupported) {
+    messages.push("Alt fra utklippstavlen er allerede lagt til.");
+  }
+  if (result.pdfUnsupported > 0) {
+    messages.push("PDF-støtte er ikke tilgjengelig i denne nettleseren.");
+  }
+  if (result.unsupported > 0) {
+    messages.push(`Utklippstavlen inneholdt ${result.unsupported} fil${result.unsupported === 1 ? '' : 'er'} uten støtte.`);
+  }
+  showStatus(messages.join(" ") || "Fant ingen støttede filer i utklippstavlen.");
 });
 
 if (pasteBtn) {
@@ -293,14 +453,14 @@ if (pasteBtn) {
         let index = 0;
         for (const item of items) {
           for (const type of item.types) {
-            if (!type.startsWith("image/")) {
+            const isImage = type.startsWith("image/");
+            const isPdf = type === "application/pdf";
+            if (!isImage && !isPdf) {
               continue;
             }
             const blob = await item.getType(type);
-            const extension = type.split("/")[1] || "png";
-            const file = new File([
-              blob
-            ], `clipboard-${Date.now()}-${index}.${extension}`, {
+            const extension = isPdf ? "pdf" : (type.split("/")[1] || "png");
+            const file = new File([blob], `clipboard-${Date.now()}-${index}.${extension}`, {
               type: blob.type,
               lastModified: Date.now()
             });
@@ -310,16 +470,25 @@ if (pasteBtn) {
         }
 
         if (!clipboardFiles.length) {
-          showStatus("Fant ingen bildefiler i utklippstavlen.");
+          showStatus("Fant ingen støttede filer i utklippstavlen.");
           return;
         }
 
-        const added = addFiles(clipboardFiles);
-        if (added) {
-          showStatus(`La til ${added} bilde${added === 1 ? '' : 'r'} fra utklippstavlen.`);
-        } else {
-          showStatus("Bildene er allerede lagt til.");
+        const result = await addFiles(clipboardFiles);
+        const messages = [];
+        if (result.added > 0) {
+          messages.push(`La til ${result.added} bilde${result.added === 1 ? '' : 'r'} fra utklippstavlen.`);
         }
+        if (result.supported > 0 && result.added === 0 && !result.pdfUnsupported) {
+          messages.push("Alt fra utklippstavlen er allerede lagt til.");
+        }
+        if (result.pdfUnsupported > 0) {
+          messages.push("PDF-støtte er ikke tilgjengelig i denne nettleseren.");
+        }
+        if (result.unsupported > 0) {
+          messages.push(`Utklippstavlen inneholdt ${result.unsupported} fil${result.unsupported === 1 ? '' : 'er'} uten støtte.`);
+        }
+        showStatus(messages.join(" ") || "Fant ingen støttede filer i utklippstavlen.");
       } catch (err) {
         console.warn("Kunne ikke lese utklippstavlen", err);
         showStatus("Kunne ikke lese utklippstavlen. Tillat tilgang og prøv igjen.");
@@ -338,6 +507,10 @@ window.addEventListener("beforeunload", () => {
   revokeAll();
   imageEntries = [];
   imageSignatures.clear();
+  if (statusTimeout) {
+    clearTimeout(statusTimeout);
+    statusTimeout = null;
+  }
 });
 
 if ("serviceWorker" in navigator) {

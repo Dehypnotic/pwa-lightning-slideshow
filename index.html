@@ -12,11 +12,11 @@
   <main id="app">
     <section id="loader" class="panel">
       <h1>Lightning Slideshow</h1>
-      <p>Slipp inn bilder eller velg fra filsystemet for å starte.</p>
+      <p>Slipp inn bilder eller PDF-er, eller velg fra filsystemet for å starte.</p>
       <div id="drop-zone" tabindex="0">
-        <p>Slipp bilder her</p>
+        <p>Slipp bilder eller PDF-er her</p>
         <button id="select-files" type="button">Velg filer</button>
-        <input id="file-input" type="file" accept="image/*" multiple aria-label="Velg bilder" />
+        <input id="file-input" type="file" accept="image/*,application/pdf" multiple aria-label="Velg bilder eller PDF" />
       </div>
       <div class="control-group">
         <label for="delay-range">Forsinkelse per bilde (ms)</label>
@@ -36,6 +36,7 @@
       <img id="stage-image" alt="Slideshow bilde">
     </section>
   </main>
+  <script src="vendor/pdfjs/pdf.min.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>
