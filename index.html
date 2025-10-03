@@ -1,5 +1,5 @@
 ﻿<!DOCTYPE html>
-<html lang="en">
+<html lang="no">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -25,8 +25,11 @@
           <input id="delay-input" type="number" min="0" max="2000" step="10" value="0">
         </div>
       </div>
-      <button id="start-slideshow" type="button" disabled>Kjør slideshow</button>
-      <p class="hint">Trykk ESC for å stoppe når slideshowet kjører.</p>
+      <div class="action-row">
+        <button id="start-slideshow" type="button" disabled>Kjør slideshow</button>
+        <button id="reset-gallery" class="secondary" type="button">Nullstill</button>
+      </div>
+      <p class="hint">Trykk ESC for å stoppe slideshow eller bruk Nullstill for å starte på nytt.</p>
     </section>
     <section id="stage" class="hidden" aria-live="off">
       <img id="stage-image" alt="Slideshow bilde">

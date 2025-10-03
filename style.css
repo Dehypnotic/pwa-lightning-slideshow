@@ -60,7 +60,7 @@ button {
   border-radius: 99px;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 120ms ease, opacity 120ms ease;
+  transition: transform 120ms ease, opacity 120ms ease, box-shadow 120ms ease;
 }
 
 button[disabled] {
@@ -70,6 +70,23 @@ button[disabled] {
 
 button:not([disabled]):hover {
   transform: translateY(-2px);
+}
+
+button.secondary {
+  background: transparent;
+  color: #f1f1f1;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+button.secondary:not([disabled]):hover {
+  box-shadow: 0 0 0 1px rgba(75, 163, 255, 0.6);
+}
+
+.action-row {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
 }
 
 .control-group {
@@ -127,5 +144,9 @@ button:not([disabled]):hover {
 
   .panel {
     padding: 1.5rem;
+  }
+
+  .action-row {
+    gap: 0.75rem;
   }
 }

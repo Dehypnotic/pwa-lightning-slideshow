@@ -4,6 +4,7 @@ const defaultDropText = dropZoneMessage.textContent;
 const fileInput = document.getElementById("file-input");
 const selectFilesBtn = document.getElementById("select-files");
 const startBtn = document.getElementById("start-slideshow");
+const resetBtn = document.getElementById("reset-gallery");
 const delayRange = document.getElementById("delay-range");
 const delayInput = document.getElementById("delay-input");
 const loader = document.getElementById("loader");
@@ -11,6 +12,7 @@ const stage = document.getElementById("stage");
 const stageImage = document.getElementById("stage-image");
 
 let imageEntries = [];
+const imageSignatures = new Set();
 let slideshowTimeout = null;
 let slideshowRaf = null;
 let currentIndex = 0;
@@ -20,24 +22,48 @@ function revokeAll() {
   imageEntries.forEach(entry => URL.revokeObjectURL(entry.url));
 }
 
-function handleFiles(files) {
+function fileSignature(file) {
+  return [file.name, file.type, file.size, file.lastModified].join("::");
+}
+
+function updateDropZoneMessage() {
+  if (!imageEntries.length) {
+    dropZoneMessage.textContent = defaultDropText;
+  } else {
+    dropZoneMessage.textContent = `${imageEntries.length} bilde${imageEntries.length === 1 ? '' : 'r'} klare.`;
+  }
+}
+
+function addFiles(files) {
   if (!files || !files.length) {
     return;
   }
 
-  revokeAll();
-  imageEntries = Array.from(files)
-    .filter(file => file.type.startsWith("image"))
-    .map(file => ({ file, url: URL.createObjectURL(file) }));
-
-  if (!imageEntries.length) {
-    startBtn.disabled = true;
-    dropZoneMessage.textContent = defaultDropText;
+  const incoming = Array.from(files).filter(file => file.type.startsWith("image"));
+  if (!incoming.length) {
     return;
   }
 
-  dropZoneMessage.textContent = `${imageEntries.length} bilde${imageEntries.length === 1 ? '' : 'r'} klare.`;
-  startBtn.disabled = false;
+  let added = 0;
+  incoming.forEach(file => {
+    const signature = fileSignature(file);
+    if (imageSignatures.has(signature)) {
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    imageEntries.push({ file, url, signature });
+    imageSignatures.add(signature);
+    added += 1;
+  });
+
+  if (!added) {
+    return;
+  }
+
+  updateDropZoneMessage();
+  if (!isRunning) {
+    startBtn.disabled = imageEntries.length === 0;
+  }
 }
 
 function syncDelayFromRange() {
@@ -104,6 +130,18 @@ async function startSlideshow() {
   showNextImage();
 }
 
+function clearTimers() {
+  if (slideshowTimeout) {
+    clearTimeout(slideshowTimeout);
+    slideshowTimeout = null;
+  }
+
+  if (slideshowRaf) {
+    cancelAnimationFrame(slideshowRaf);
+    slideshowRaf = null;
+  }
+}
+
 function stopSlideshow() {
   if (!isRunning) {
     return;
@@ -115,19 +153,22 @@ function stopSlideshow() {
   stage.classList.add("hidden");
   stageImage.removeAttribute("src");
 
-  if (slideshowTimeout) {
-    clearTimeout(slideshowTimeout);
-    slideshowTimeout = null;
-  }
-
-  if (slideshowRaf) {
-    cancelAnimationFrame(slideshowRaf);
-    slideshowRaf = null;
-  }
+  clearTimers();
 
   if (document.fullscreenElement && document.exitFullscreen) {
     document.exitFullscreen().catch(() => {});
   }
+}
+
+function resetGallery() {
+  stopSlideshow();
+  clearTimers();
+  revokeAll();
+  imageEntries = [];
+  imageSignatures.clear();
+  currentIndex = 0;
+  updateDropZoneMessage();
+  startBtn.disabled = true;
 }
 
 function preventDefaults(event) {
@@ -152,7 +193,7 @@ dropZone.addEventListener("drop", event => {
   dropZone.classList.remove("dragover");
   const files = event.dataTransfer?.files;
   if (files) {
-    handleFiles(files);
+    addFiles(files);
   }
 });
 
@@ -163,10 +204,11 @@ selectFilesBtn.addEventListener("click", () => {
 
 fileInput.addEventListener("change", event => {
   const files = event.target.files;
-  handleFiles(files);
+  addFiles(files);
 });
 
 startBtn.addEventListener("click", startSlideshow);
+resetBtn.addEventListener("click", resetGallery);
 
 delayRange.addEventListener("input", syncDelayFromRange);
 delayInput.addEventListener("input", syncDelayFromInput);
@@ -177,7 +219,11 @@ document.addEventListener("keydown", event => {
   }
 });
 
-window.addEventListener("beforeunload", revokeAll);
+window.addEventListener("beforeunload", () => {
+  revokeAll();
+  imageEntries = [];
+  imageSignatures.clear();
+});
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
