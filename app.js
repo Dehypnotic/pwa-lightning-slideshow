@@ -4,6 +4,7 @@ const defaultDropText = dropZoneMessage.textContent;
 const fileInput = document.getElementById("file-input");
 const selectFilesBtn = document.getElementById("select-files");
 const startBtn = document.getElementById("start-slideshow");
+const pasteBtn = document.getElementById("paste-clipboard");
 const resetBtn = document.getElementById("reset-gallery");
 const delayRange = document.getElementById("delay-range");
 const delayInput = document.getElementById("delay-input");
@@ -17,6 +18,7 @@ let slideshowTimeout = null;
 let slideshowRaf = null;
 let currentIndex = 0;
 let isRunning = false;
+let statusTimeout = null;
 
 function revokeAll() {
   imageEntries.forEach(entry => URL.revokeObjectURL(entry.url));
@@ -27,6 +29,11 @@ function fileSignature(file) {
 }
 
 function updateDropZoneMessage() {
+  if (statusTimeout) {
+    clearTimeout(statusTimeout);
+    statusTimeout = null;
+  }
+
   if (!imageEntries.length) {
     dropZoneMessage.textContent = defaultDropText;
   } else {
@@ -34,14 +41,55 @@ function updateDropZoneMessage() {
   }
 }
 
+function showStatus(message, revert = true) {
+  if (statusTimeout) {
+    clearTimeout(statusTimeout);
+    statusTimeout = null;
+  }
+
+  dropZoneMessage.textContent = message;
+
+  if (revert) {
+    statusTimeout = setTimeout(() => {
+      statusTimeout = null;
+      updateDropZoneMessage();
+    }, 2200);
+  }
+}
+
+function extractImagesFromDataTransfer(data) {
+  if (!data) {
+    return [];
+  }
+
+  const files = [];
+
+  if (data.files && data.files.length) {
+    files.push(...Array.from(data.files));
+  }
+
+  if (data.items && data.items.length) {
+    Array.from(data.items)
+      .filter(item => item.kind === "file")
+      .forEach(item => {
+        const file = item.getAsFile();
+        if (file) {
+          files.push(file);
+        }
+      });
+  }
+
+  return files;
+}
+
 function addFiles(files) {
   if (!files || !files.length) {
-    return;
+    return 0;
   }
 
   const incoming = Array.from(files).filter(file => file.type.startsWith("image"));
   if (!incoming.length) {
-    return;
+    return 0;
   }
 
   let added = 0;
@@ -57,13 +105,15 @@ function addFiles(files) {
   });
 
   if (!added) {
-    return;
+    return 0;
   }
 
   updateDropZoneMessage();
   if (!isRunning) {
     startBtn.disabled = imageEntries.length === 0;
   }
+
+  return added;
 }
 
 function syncDelayFromRange() {
@@ -191,10 +241,8 @@ dropZone.addEventListener("dragleave", event => {
 dropZone.addEventListener("drop", event => {
   preventDefaults(event);
   dropZone.classList.remove("dragover");
-  const files = event.dataTransfer?.files;
-  if (files) {
-    addFiles(files);
-  }
+  const files = extractImagesFromDataTransfer(event.dataTransfer);
+  addFiles(files);
 });
 
 selectFilesBtn.addEventListener("click", () => {
@@ -204,7 +252,11 @@ selectFilesBtn.addEventListener("click", () => {
 
 fileInput.addEventListener("change", event => {
   const files = event.target.files;
-  addFiles(files);
+  const added = addFiles(files);
+  event.target.value = "";
+  if (!added) {
+    showStatus("Ingen nye bilder fra filvelgeren.");
+  }
 });
 
 startBtn.addEventListener("click", startSlideshow);
@@ -212,6 +264,69 @@ resetBtn.addEventListener("click", resetGallery);
 
 delayRange.addEventListener("input", syncDelayFromRange);
 delayInput.addEventListener("input", syncDelayFromInput);
+
+document.addEventListener("paste", event => {
+  const files = extractImagesFromDataTransfer(event.clipboardData);
+  if (!files.length) {
+    return;
+  }
+
+  const added = addFiles(files);
+  event.preventDefault();
+  if (added) {
+    showStatus(`La til ${added} bilde${added === 1 ? '' : 'r'} fra utklippstavlen.`);
+  } else {
+    showStatus("Bildene er allerede lagt til.");
+  }
+});
+
+if (pasteBtn) {
+  const clipboardReadSupported = !!(navigator.clipboard && navigator.clipboard.read);
+  if (!clipboardReadSupported) {
+    pasteBtn.disabled = true;
+    pasteBtn.title = "Utklippstavle-lesing støttes ikke i denne nettleseren.";
+  } else {
+    pasteBtn.addEventListener("click", async () => {
+      try {
+        const items = await navigator.clipboard.read();
+        const clipboardFiles = [];
+        let index = 0;
+        for (const item of items) {
+          for (const type of item.types) {
+            if (!type.startsWith("image/")) {
+              continue;
+            }
+            const blob = await item.getType(type);
+            const extension = type.split("/")[1] || "png";
+            const file = new File([
+              blob
+            ], `clipboard-${Date.now()}-${index}.${extension}`, {
+              type: blob.type,
+              lastModified: Date.now()
+            });
+            clipboardFiles.push(file);
+            index += 1;
+          }
+        }
+
+        if (!clipboardFiles.length) {
+          showStatus("Fant ingen bildefiler i utklippstavlen.");
+          return;
+        }
+
+        const added = addFiles(clipboardFiles);
+        if (added) {
+          showStatus(`La til ${added} bilde${added === 1 ? '' : 'r'} fra utklippstavlen.`);
+        } else {
+          showStatus("Bildene er allerede lagt til.");
+        }
+      } catch (err) {
+        console.warn("Kunne ikke lese utklippstavlen", err);
+        showStatus("Kunne ikke lese utklippstavlen. Tillat tilgang og prøv igjen.");
+      }
+    });
+  }
+}
 
 document.addEventListener("keydown", event => {
   if (event.key === "Escape") {
