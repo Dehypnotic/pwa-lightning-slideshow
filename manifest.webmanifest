@@ -1,0 +1,16 @@
+﻿{
+  "name": "Lightning Slideshow",
+  "short_name": "Slideshow",
+  "start_url": ".",
+  "display": "fullscreen",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "description": "Superrask slideshow PWA for egne bilder.",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
