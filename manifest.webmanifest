@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "Lightning Slideshow",
   "short_name": "Slideshow",
   "start_url": ".",
@@ -30,8 +30,7 @@
     {
       "src": "screenshots/slideshow-preview.png",
       "sizes": "1280x720",
-      "type": "image/png",
-      "label": "Upload panel and full-screen lightning slideshow preview"
+      "type": "image/png"
     }
   ]
 }
