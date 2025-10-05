@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "Lightning Slideshow",
   "short_name": "Slideshow",
   "start_url": ".",
@@ -11,6 +11,27 @@
       "src": "icons/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml"
+    },
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "id": "/lightning-slideshow",
+  "scope": ".",
+  "orientation": "landscape",
+  "screenshots": [
+    {
+      "src": "screenshots/slideshow-preview.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "label": "Upload panel and full-screen lightning slideshow preview"
     }
   ]
 }
