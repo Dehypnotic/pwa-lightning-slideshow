@@ -17,7 +17,7 @@ const pdfSupported = Boolean(pdfjsGlobal);
 if (pdfSupported) {
   pdfjsGlobal.GlobalWorkerOptions.workerSrc = "vendor/pdfjs/pdf.worker.min.js";
 } else {
-  console.warn("PDF.js ble ikke lastet – PDF-støtte er deaktivert.");
+  console.warn("PDF.js failed to load - PDF support is disabled.");
 }
 
 let imageEntries = [];
@@ -45,7 +45,7 @@ function updateDropZoneMessage() {
   if (!imageEntries.length) {
     dropZoneMessage.textContent = defaultDropText;
   } else {
-    dropZoneMessage.textContent = `${imageEntries.length} bilde${imageEntries.length === 1 ? '' : 'r'} klare.`;
+    dropZoneMessage.textContent = `${imageEntries.length} image${imageEntries.length === 1 ? '' : 's'} ready.`;
   }
 }
 
@@ -96,7 +96,7 @@ function addImageFile(file) {
     return 0;
   }
   const url = URL.createObjectURL(file);
-  imageEntries.push({ url, signature, label: file.name || "Bilde" });
+  imageEntries.push({ url, signature, label: file.name || "Image" });
   imageSignatures.add(signature);
   return 1;
 }
@@ -107,7 +107,7 @@ function canvasToBlob(canvas) {
       if (blob) {
         resolve(blob);
       } else {
-        reject(new Error("Kunne ikke opprette bilde fra PDF."));
+        reject(new Error("Could not create image from PDF."));
       }
     }, "image/png");
   });
@@ -135,7 +135,7 @@ async function addPdfFile(file) {
       try {
         page = await pdfDoc.getPage(pageNumber);
       } catch (error) {
-        console.warn(`Kunne ikke hente side ${pageNumber} fra ${file.name}`, error);
+        console.warn(`Could not load page ${pageNumber} from ${file.name}`, error);
         continue;
       }
 
@@ -152,7 +152,7 @@ async function addPdfFile(file) {
       try {
         await page.render({ canvasContext: context, viewport }).promise;
       } catch (renderError) {
-        console.warn(`Kunne ikke rendre side ${pageNumber} fra ${file.name}`, renderError);
+        console.warn(`Could not render page ${pageNumber} from ${file.name}`, renderError);
         continue;
       }
 
@@ -160,7 +160,7 @@ async function addPdfFile(file) {
       try {
         blob = await canvasToBlob(canvas);
       } catch (blobError) {
-        console.warn(`Kunne ikke lagre side ${pageNumber} som bilde`, blobError);
+        console.warn(`Could not store page ${pageNumber} as an image`, blobError);
         continue;
       }
 
@@ -169,7 +169,7 @@ async function addPdfFile(file) {
       imageEntries.push({
         url,
         signature: pageSignature,
-        label: `${file.name || "PDF"} – side ${pageNumber}`
+        label: `${file.name || "PDF"} - page ${pageNumber}`
       });
       imageSignatures.add(pageSignature);
       added += 1;
@@ -207,13 +207,13 @@ async function addFiles(files) {
         continue;
       }
 
-      showStatus(`Behandler ${file.name || "PDF"} …`, false, 6000);
+      showStatus(`Processing ${file.name || "PDF"} ...`, false, 6000);
       try {
         const { added: pagesAdded } = await addPdfFile(file);
         added += pagesAdded;
       } catch (error) {
-        console.warn("Kunne ikke prosessere PDF", error);
-        showStatus(`Klarte ikke å lese ${file.name || "PDF"}.`);
+        console.warn("Could not process PDF", error);
+        showStatus(`Unable to read ${file.name || "PDF"}.`);
       }
       continue;
     }
@@ -270,7 +270,7 @@ function showNextImage() {
 
   const entry = imageEntries[currentIndex];
   stageImage.src = entry.url;
-  stageImage.alt = entry.label || "Slideshow bilde";
+  stageImage.alt = entry.label || "Slideshow image";
 
   currentIndex = (currentIndex + 1) % imageEntries.length;
   scheduleNextFrame();
@@ -364,16 +364,16 @@ dropZone.addEventListener("drop", async event => {
   const result = await addFiles(files);
   const messages = [];
   if (result.added > 0) {
-    messages.push(`La til ${result.added} bilde${result.added === 1 ? '' : 'r'}.`);
+    messages.push(`Added ${result.added} image${result.added === 1 ? '' : 's'}.`);
   }
   if (result.supported > 0 && result.added === 0 && !result.pdfUnsupported) {
-    messages.push("Alt var allerede lagt til.");
+    messages.push("Everything was already added.");
   }
   if (result.pdfUnsupported > 0) {
-    messages.push("PDF-støtte er ikke tilgjengelig i denne nettleseren.");
+    messages.push("PDF support is not available in this browser.");
   }
   if (result.unsupported > 0) {
-    messages.push(`Hoppet over ${result.unsupported} fil${result.unsupported === 1 ? '' : 'er'} uten støtte.`);
+    messages.push(`Skipped ${result.unsupported} unsupported file${result.unsupported === 1 ? '' : 's'}.`);
   }
   if (messages.length) {
     showStatus(messages.join(" "));
@@ -393,16 +393,16 @@ fileInput.addEventListener("change", async event => {
   event.target.value = "";
   const messages = [];
   if (result.added > 0) {
-    messages.push(`La til ${result.added} bilde${result.added === 1 ? '' : 'r'}.`);
+    messages.push(`Added ${result.added} image${result.added === 1 ? '' : 's'}.`);
   }
   if (result.supported > 0 && result.added === 0 && !result.pdfUnsupported) {
-    messages.push("Ingen nye filer å legge til.");
+    messages.push("No new files to add.");
   }
   if (result.pdfUnsupported > 0) {
-    messages.push("PDF-støtte er ikke tilgjengelig i denne nettleseren.");
+    messages.push("PDF support is not available in this browser.");
   }
   if (result.unsupported > 0) {
-    messages.push(`Hoppet over ${result.unsupported} fil${result.unsupported === 1 ? '' : 'er'} uten støtte.`);
+    messages.push(`Skipped ${result.unsupported} unsupported file${result.unsupported === 1 ? '' : 's'}.`);
   }
   if (messages.length) {
     showStatus(messages.join(" "));
@@ -426,25 +426,25 @@ document.addEventListener("paste", async event => {
   const result = await addFiles(files);
   const messages = [];
   if (result.added > 0) {
-    messages.push(`La til ${result.added} bilde${result.added === 1 ? '' : 'r'} fra utklippstavlen.`);
+    messages.push(`Added ${result.added} image${result.added === 1 ? '' : 's'} from the clipboard.`);
   }
   if (result.supported > 0 && result.added === 0 && !result.pdfUnsupported) {
-    messages.push("Alt fra utklippstavlen er allerede lagt til.");
+    messages.push("Everything from the clipboard is already added.");
   }
   if (result.pdfUnsupported > 0) {
-    messages.push("PDF-støtte er ikke tilgjengelig i denne nettleseren.");
+    messages.push("PDF support is not available in this browser.");
   }
   if (result.unsupported > 0) {
-    messages.push(`Utklippstavlen inneholdt ${result.unsupported} fil${result.unsupported === 1 ? '' : 'er'} uten støtte.`);
+    messages.push(`The clipboard held ${result.unsupported} unsupported file${result.unsupported === 1 ? '' : 's'}.`);
   }
-  showStatus(messages.join(" ") || "Fant ingen støttede filer i utklippstavlen.");
+  showStatus(messages.join(" ") || "Found no supported files in the clipboard.");
 });
 
 if (pasteBtn) {
   const clipboardReadSupported = !!(navigator.clipboard && navigator.clipboard.read);
   if (!clipboardReadSupported) {
     pasteBtn.disabled = true;
-    pasteBtn.title = "Utklippstavle-lesing støttes ikke i denne nettleseren.";
+    pasteBtn.title = "Clipboard read is not supported in this browser.";
   } else {
     pasteBtn.addEventListener("click", async () => {
       try {
@@ -470,28 +470,28 @@ if (pasteBtn) {
         }
 
         if (!clipboardFiles.length) {
-          showStatus("Fant ingen støttede filer i utklippstavlen.");
+          showStatus("Found no supported files in the clipboard.");
           return;
         }
 
         const result = await addFiles(clipboardFiles);
         const messages = [];
         if (result.added > 0) {
-          messages.push(`La til ${result.added} bilde${result.added === 1 ? '' : 'r'} fra utklippstavlen.`);
+          messages.push(`Added ${result.added} image${result.added === 1 ? '' : 's'} from the clipboard.`);
         }
         if (result.supported > 0 && result.added === 0 && !result.pdfUnsupported) {
-          messages.push("Alt fra utklippstavlen er allerede lagt til.");
+          messages.push("Everything from the clipboard is already added.");
         }
         if (result.pdfUnsupported > 0) {
-          messages.push("PDF-støtte er ikke tilgjengelig i denne nettleseren.");
+          messages.push("PDF support is not available in this browser.");
         }
         if (result.unsupported > 0) {
-          messages.push(`Utklippstavlen inneholdt ${result.unsupported} fil${result.unsupported === 1 ? '' : 'er'} uten støtte.`);
+          messages.push(`The clipboard held ${result.unsupported} unsupported file${result.unsupported === 1 ? '' : 's'}.`);
         }
-        showStatus(messages.join(" ") || "Fant ingen støttede filer i utklippstavlen.");
+        showStatus(messages.join(" ") || "Found no supported files in the clipboard.");
       } catch (err) {
-        console.warn("Kunne ikke lese utklippstavlen", err);
-        showStatus("Kunne ikke lese utklippstavlen. Tillat tilgang og prøv igjen.");
+        console.warn("Could not read the clipboard", err);
+        showStatus("Could not read the clipboard. Allow access and try again.");
       }
     });
   }

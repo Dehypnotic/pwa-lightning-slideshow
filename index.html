@@ -1,5 +1,5 @@
 ﻿<!DOCTYPE html>
-<html lang="no">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,28 +11,28 @@
 <body>
   <main id="app">
     <section id="loader" class="panel">
-      <h1>Subliminal Slideshow</h1>
-      <p>Slipp inn bilder eller PDF-er, lim inn med Ctrl + V eller knappen, eller velg fra filsystemet. <strong>Kjør slideshow</strong> for å starte, Esc for å stoppe.</p>
+      <h1>Lightning Slideshow</h1>
+      <p>Drop images or PDFs, paste with Ctrl + V or the button, or pick files from disk. <strong>Start slideshow</strong> to begin, press Esc to stop.</p>
       <div id="drop-zone" tabindex="0">
-        <p>Slipp bilder eller PDF-er her</p>
-        <button id="select-files" type="button">Velg filer</button>
-        <input id="file-input" type="file" accept="image/*,application/pdf" multiple aria-label="Velg bilder eller PDF" />
+        <p>Drop images or PDFs here</p>
+        <button id="select-files" type="button">Choose files</button>
+        <input id="file-input" type="file" accept="image/*,application/pdf" multiple aria-label="Choose images or PDFs" />
       </div>
       <div class="control-group">
-        <label for="delay-range">Forsinkelse per bilde (ms)</label>
+        <label for="delay-range">Delay per image (ms)</label>
         <div class="control-row">
           <input id="delay-range" type="range" min="0" max="2000" step="10" value="200">
           <input id="delay-input" type="number" min="0" max="2000" step="10" value="200">
         </div>
       </div>
       <div class="action-row">
-        <button id="start-slideshow" type="button" disabled>Kjør slideshow</button>
-        <button id="paste-clipboard" class="secondary" type="button">Lim inn fra utklippstavle</button>
-        <button id="reset-gallery" class="secondary" type="button">Nullstill</button>
+        <button id="start-slideshow" type="button" disabled>Start slideshow</button>
+        <button id="paste-clipboard" class="secondary" type="button">Paste from clipboard</button>
+        <button id="reset-gallery" class="secondary" type="button">Reset</button>
       </div>
     </section>
     <section id="stage" class="hidden" aria-live="off">
-      <img id="stage-image" alt="Slideshow bilde">
+      <img id="stage-image" alt="Slideshow image">
     </section>
   </main>
   <script src="vendor/pdfjs/pdf.min.js"></script>

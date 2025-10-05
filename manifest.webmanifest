@@ -5,7 +5,7 @@
   "display": "fullscreen",
   "background_color": "#000000",
   "theme_color": "#000000",
-  "description": "Superrask slideshow PWA for egne bilder.",
+  "description": "Lightning-fast slideshow PWA for your own images.",
   "icons": [
     {
       "src": "icons/icon.svg",
