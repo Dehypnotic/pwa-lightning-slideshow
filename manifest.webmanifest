@@ -1,6 +1,6 @@
 ﻿{
   "name": "Lightning Slideshow",
-  "short_name": "Lightning Slideshow",
+  "short_name": "LightningSlideshow",
   "start_url": ".",
   "display": "fullscreen",
   "background_color": "#000000",
@@ -23,7 +23,7 @@
       "type": "image/png"
     }
   ],
-  "id": "/lightning-slideshow",
+  "id": "lightningSlideshow",
   "scope": ".",
   "orientation": "landscape",
   "screenshots": [
