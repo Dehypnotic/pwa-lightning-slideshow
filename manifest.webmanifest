@@ -5,7 +5,7 @@
   "display": "fullscreen",
   "background_color": "#000000",
   "theme_color": "#000000",
-  "description": "Lightning-fast slideshow PWA for your own images.",
+  "description": "Lightning-fast slideshow for your own images and PDFs.",
   "icons": [
     {
       "src": "icons/icon.svg",
