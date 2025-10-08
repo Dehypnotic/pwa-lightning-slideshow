@@ -6,6 +6,7 @@ const selectFilesBtn = document.getElementById("select-files");
 const startBtn = document.getElementById("start-slideshow");
 const pasteBtn = document.getElementById("paste-clipboard");
 const resetBtn = document.getElementById("reset-gallery");
+const saveBtn = document.getElementById("save-gallery");
 const delayRange = document.getElementById("delay-range");
 const delayInput = document.getElementById("delay-input");
 const loader = document.getElementById("loader");
@@ -218,6 +219,134 @@ function restoreDelaySetting() {
   applyDelay(stored, { persist: false });
 }
 
+const SAVE_PACKAGE_VERSION = 1;
+
+function arrayBufferToBase64(buffer) {
+  const view = buffer instanceof ArrayBuffer ? new Uint8Array(buffer) : buffer instanceof Uint8Array ? buffer : new Uint8Array();
+  if (view.length === 0) {
+    return "";
+  }
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let i = 0; i < view.length; i += chunkSize) {
+    const chunk = view.subarray(i, Math.min(view.length, i + chunkSize));
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+}
+
+function base64ToArrayBuffer(base64) {
+  const binary = atob(base64);
+  const length = binary.length;
+  const bytes = new Uint8Array(length);
+  for (let i = 0; i < length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+function generateImportSignature() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `import-${crypto.randomUUID()}`;
+  }
+  return `import-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+async function buildExportPayload() {
+  const persistedSlides = await getPersistedSlides();
+  const slides = [];
+  for (const slide of persistedSlides) {
+    if (!slide || !slide.bytes) {
+      continue;
+    }
+    try {
+      slides.push({
+        signature: slide.signature,
+        label: slide.label,
+        type: slide.type,
+        addedAt: slide.addedAt,
+        bytes: arrayBufferToBase64(slide.bytes)
+      });
+    } catch (error) {
+      console.warn("Could not include slide in export", error);
+    }
+  }
+  return {
+    version: SAVE_PACKAGE_VERSION,
+    delay: Number(delayRange.value),
+    generatedAt: new Date().toISOString(),
+    slides
+  };
+}
+
+async function importSavedPackage(file) {
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (!data || typeof data !== "object" || Number(data.version) !== SAVE_PACKAGE_VERSION || !Array.isArray(data.slides)) {
+      throw new Error("Unsupported package format");
+    }
+
+    if (typeof data.delay === "number") {
+      applyDelay(data.delay);
+    }
+
+    let added = 0;
+    const total = data.slides.length;
+
+    for (const slide of data.slides) {
+      if (!slide || typeof slide.bytes !== "string") {
+        continue;
+      }
+      let buffer;
+      try {
+        buffer = base64ToArrayBuffer(slide.bytes);
+      } catch (error) {
+        console.warn("Could not decode slide from package", error);
+        continue;
+      }
+      const blob = new Blob([buffer], { type: slide.type || "application/octet-stream" });
+      const label = slide.label || "Image";
+      let signature = slide.signature || generateImportSignature();
+      const registered = await registerEntry({
+        blob,
+        label,
+        signature,
+        addedAt: slide.addedAt || Date.now()
+      });
+      if (registered) {
+        added += 1;
+      }
+    }
+
+    return { added, total };
+  } catch (error) {
+    console.warn("Could not load saved slideshow", error);
+    return { added: 0, total: 0, error: true };
+  }
+}
+
+async function handleSaveClick() {
+  try {
+    const payload = await buildExportPayload();
+    const fileContents = JSON.stringify(payload, null, 2);
+    const blob = new Blob([fileContents], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const timestamp = new Date().toISOString().replace(/[:]/g, "-");
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `lightning-slideshow-${timestamp}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showStatus(`Saved ${payload.slides.length} slide${payload.slides.length === 1 ? "" : "s"}.`);
+  } catch (error) {
+    console.warn("Could not create slideshow export", error);
+    showStatus("Could not create export file.");
+  }
+}
+
 function revokeAll() {
   imageEntries.forEach(entry => URL.revokeObjectURL(entry.url));
 }
@@ -378,7 +507,7 @@ async function addPdfFile(file) {
 
 async function addFiles(files) {
   if (!files || !files.length) {
-    return { added: 0, supported: 0, unsupported: 0, pdfUnsupported: 0 };
+    return { added: 0, supported: 0, unsupported: 0, pdfUnsupported: 0, packageSlidesAdded: 0, packagesProcessed: 0, packageErrors: 0, packageSlidesTotal: 0 };
   }
 
   const incoming = Array.from(files);
@@ -386,8 +515,32 @@ async function addFiles(files) {
   let supported = 0;
   let unsupported = 0;
   let pdfUnsupported = 0;
+  let packageSlidesAdded = 0;
+  let packagesProcessed = 0;
+  let packageErrors = 0;
+  let packageSlidesTotal = 0;
 
   for (const file of incoming) {
+    const name = (file.name || "").toLowerCase();
+    const isPackageCandidate = file.type === "application/json" || name.endsWith(".json") || name.endsWith(".lss") || name.endsWith(".slideshow");
+
+    if (isPackageCandidate) {
+      const packageResult = await importSavedPackage(file);
+      if (packageResult.error) {
+        unsupported += 1;
+        packageErrors += 1;
+      } else {
+        packagesProcessed += 1;
+        const totalSlides = Number(packageResult.total) || 0;
+        const addedSlides = Number(packageResult.added) || 0;
+        supported += totalSlides;
+        packageSlidesTotal += totalSlides;
+        added += addedSlides;
+        packageSlidesAdded += addedSlides;
+      }
+      continue;
+    }
+
     if (file.type.startsWith("image/")) {
       supported += 1;
       added += await addImageFile(file);
@@ -425,7 +578,7 @@ async function addFiles(files) {
     startBtn.disabled = true;
   }
 
-  return { added, supported, unsupported, pdfUnsupported };
+  return { added, supported, unsupported, pdfUnsupported, packageSlidesAdded, packagesProcessed, packageErrors, packageSlidesTotal };
 }
 
 async function restorePersistedSlides() {
@@ -472,18 +625,17 @@ async function restorePersistedSlides() {
 }
 
 function syncDelayFromRange() {
-  delayInput.value = delayRange.value;
+  applyDelay(Number(delayRange.value));
 }
 
 function syncDelayFromInput() {
   const value = Number(delayInput.value);
   if (Number.isNaN(value)) {
-    delayInput.value = delayRange.value;
+    applyDelay(Number(delayRange.value), { persist: false });
     return;
   }
   const clamped = Math.min(2000, Math.max(0, value));
-  delayInput.value = clamped;
-  delayRange.value = clamped;
+  applyDelay(clamped);
 }
 
 function scheduleNextFrame() {
@@ -576,6 +728,7 @@ async function resetGallery() {
   updateDropZoneMessage();
   startBtn.disabled = true;
   await clearPersistedSlides();
+  applyDelay(DEFAULT_DELAY);
 }
 
 function preventDefaults(event) {
@@ -602,10 +755,24 @@ dropZone.addEventListener("drop", async event => {
   const result = await addFiles(files);
   const messages = [];
   if (result.added > 0) {
-    messages.push(`Added ${result.added} image${result.added === 1 ? '' : 's'}.`);
+    let message = `Added ${result.added} slide${result.added === 1 ? "" : "s"}.`;
+    if (result.packageSlidesAdded > 0) {
+      message += ` (${result.packageSlidesAdded} from saved package${result.packageSlidesAdded === 1 ? "" : "s"}.)`;
+    }
+    messages.push(message);
   }
   if (result.supported > 0 && result.added === 0 && !result.pdfUnsupported) {
     messages.push("Everything was already added.");
+  }
+  if (result.packageErrors > 0) {
+    messages.push("Some saved packages could not be read.");
+  }
+  if (result.packagesProcessed > 0 && result.packageSlidesAdded === 0) {
+    if (result.packageSlidesTotal > 0) {
+      messages.push("Saved package already loaded.");
+    } else {
+      messages.push("Saved package contained no slides.");
+    }
   }
   if (result.pdfUnsupported > 0) {
     messages.push("PDF support is not available in this browser.");
@@ -631,10 +798,24 @@ fileInput.addEventListener("change", async event => {
   event.target.value = "";
   const messages = [];
   if (result.added > 0) {
-    messages.push(`Added ${result.added} image${result.added === 1 ? '' : 's'}.`);
+    let message = `Added ${result.added} slide${result.added === 1 ? "" : "s"}.`;
+    if (result.packageSlidesAdded > 0) {
+      message += ` (${result.packageSlidesAdded} from saved package${result.packageSlidesAdded === 1 ? "" : "s"}.)`;
+    }
+    messages.push(message);
   }
   if (result.supported > 0 && result.added === 0 && !result.pdfUnsupported) {
-    messages.push("No new files to add.");
+    messages.push("No new slides to add.");
+  }
+  if (result.packageErrors > 0) {
+    messages.push("Some saved packages could not be read.");
+  }
+  if (result.packagesProcessed > 0 && result.packageSlidesAdded === 0) {
+    if (result.packageSlidesTotal > 0) {
+      messages.push("Saved package already loaded.");
+    } else {
+      messages.push("Saved package contained no slides.");
+    }
   }
   if (result.pdfUnsupported > 0) {
     messages.push("PDF support is not available in this browser.");
@@ -651,6 +832,9 @@ fileInput.addEventListener("change", async event => {
 
 startBtn.addEventListener("click", startSlideshow);
 resetBtn.addEventListener("click", () => { void resetGallery(); });
+if (saveBtn) {
+  saveBtn.addEventListener("click", () => { void handleSaveClick(); });
+}
 
 delayRange.addEventListener("input", syncDelayFromRange);
 delayInput.addEventListener("input", syncDelayFromInput);
@@ -664,10 +848,24 @@ document.addEventListener("paste", async event => {
   const result = await addFiles(files);
   const messages = [];
   if (result.added > 0) {
-    messages.push(`Added ${result.added} image${result.added === 1 ? '' : 's'} from the clipboard.`);
+    let message = `Added ${result.added} slide${result.added === 1 ? "" : "s"} from the clipboard.`;
+    if (result.packageSlidesAdded > 0) {
+      message += ` (${result.packageSlidesAdded} from saved package${result.packageSlidesAdded === 1 ? "" : "s"}.)`;
+    }
+    messages.push(message);
   }
   if (result.supported > 0 && result.added === 0 && !result.pdfUnsupported) {
     messages.push("Everything from the clipboard is already added.");
+  }
+  if (result.packageErrors > 0) {
+    messages.push("Some saved packages could not be read.");
+  }
+  if (result.packagesProcessed > 0 && result.packageSlidesAdded === 0) {
+    if (result.packageSlidesTotal > 0) {
+      messages.push("Saved package already loaded.");
+    } else {
+      messages.push("Saved package contained no slides.");
+    }
   }
   if (result.pdfUnsupported > 0) {
     messages.push("PDF support is not available in this browser.");
@@ -715,10 +913,20 @@ if (pasteBtn) {
         const result = await addFiles(clipboardFiles);
         const messages = [];
         if (result.added > 0) {
-          messages.push(`Added ${result.added} image${result.added === 1 ? '' : 's'} from the clipboard.`);
+          let message = `Added ${result.added} slide${result.added === 1 ? "" : "s"} from the clipboard.`;
+          if (result.packageSlidesAdded > 0) {
+            message += ` (${result.packageSlidesAdded} from saved package${result.packageSlidesAdded === 1 ? "" : "s"}.)`;
+          }
+          messages.push(message);
         }
         if (result.supported > 0 && result.added === 0 && !result.pdfUnsupported) {
           messages.push("Everything from the clipboard is already added.");
+        }
+        if (result.packageErrors > 0) {
+          messages.push("Some saved packages could not be read.");
+        }
+        if (result.packagesProcessed > 0 && result.packageSlidesAdded === 0) {
+          messages.push("Saved package already loaded.");
         }
         if (result.pdfUnsupported > 0) {
           messages.push("PDF support is not available in this browser.");

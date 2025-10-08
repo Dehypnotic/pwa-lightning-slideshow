@@ -1,4 +1,4 @@
-const CACHE_NAME = "lightning-slideshow-v3";
+﻿const CACHE_NAME = "lightning-slideshow-v6";
 const ASSETS = [
   "./",
   "./index.html",
