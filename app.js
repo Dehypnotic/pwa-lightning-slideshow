@@ -28,6 +28,134 @@ let currentIndex = 0;
 let isRunning = false;
 let statusTimeout = null;
 
+const supportsIndexedDB = typeof indexedDB !== "undefined";
+let dbPromise = null;
+
+function openDatabase() {
+  if (!supportsIndexedDB) {
+    return Promise.resolve(null);
+  }
+  if (dbPromise) {
+    return dbPromise;
+  }
+  dbPromise = new Promise(resolve => {
+    const request = indexedDB.open("lightning-slideshow-storage", 1);
+    request.onupgradeneeded = event => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains("slides")) {
+        const store = db.createObjectStore("slides", { keyPath: "signature" });
+        store.createIndex("addedAt", "addedAt");
+      }
+    };
+    request.onsuccess = event => {
+      const db = event.target.result;
+      db.onversionchange = () => {
+        db.close();
+      };
+      resolve(db);
+    };
+    request.onerror = () => {
+      console.warn("IndexedDB unavailable, persistence disabled.", request.error);
+      resolve(null);
+    };
+    request.onblocked = () => {
+      console.warn("IndexedDB upgrade blocked. Persistence may not work as expected.");
+    };
+  });
+  return dbPromise;
+}
+
+async function saveSlideRecord({ signature, label, blob, addedAt }) {
+  const db = await openDatabase();
+  if (!db) {
+    return;
+  }
+  return new Promise(resolve => {
+    const tx = db.transaction("slides", "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => {
+      console.warn("Failed to persist slide", tx.error);
+      resolve();
+    };
+    const store = tx.objectStore("slides");
+    try {
+      store.put({
+        signature,
+        label,
+        addedAt,
+        blob,
+        type: blob.type
+      });
+    } catch (error) {
+      console.warn("Could not store slide", error);
+      resolve();
+    }
+  });
+}
+
+async function getPersistedSlides() {
+  const db = await openDatabase();
+  if (!db) {
+    return [];
+  }
+  return new Promise(resolve => {
+    try {
+      const tx = db.transaction("slides", "readonly");
+      const store = tx.objectStore("slides");
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const records = (request.result || []).sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0));
+        resolve(records);
+      };
+      request.onerror = () => {
+        console.warn("Failed to read persisted slides", request.error);
+        resolve([]);
+      };
+    } catch (error) {
+      console.warn("Could not access persisted slides", error);
+      resolve([]);
+    }
+  });
+}
+
+async function clearPersistedSlides() {
+  const db = await openDatabase();
+  if (!db) {
+    return;
+  }
+  return new Promise(resolve => {
+    try {
+      const tx = db.transaction("slides", "readwrite");
+      const store = tx.objectStore("slides");
+      const request = store.clear();
+      request.onsuccess = () => resolve();
+      request.onerror = () => {
+        console.warn("Failed to clear persisted slides", request.error);
+        resolve();
+      };
+    } catch (error) {
+      console.warn("Could not clear persisted slides", error);
+      resolve();
+    }
+  });
+}
+
+async function registerEntry({ blob, label, signature, persist = true, addedAt = Date.now() }) {
+  if (imageSignatures.has(signature)) {
+    return false;
+  }
+
+  const url = URL.createObjectURL(blob);
+  imageEntries.push({ url, signature, label });
+  imageSignatures.add(signature);
+
+  if (persist) {
+    await saveSlideRecord({ signature, label, blob, addedAt });
+  }
+
+  return true;
+}
+
 function revokeAll() {
   imageEntries.forEach(entry => URL.revokeObjectURL(entry.url));
 }
@@ -90,15 +218,19 @@ function collectFilesFromDataTransfer(data) {
   return files;
 }
 
-function addImageFile(file) {
+async function addImageFile(file) {
   const signature = fileSignature(file);
   if (imageSignatures.has(signature)) {
     return 0;
   }
-  const url = URL.createObjectURL(file);
-  imageEntries.push({ url, signature, label: file.name || "Image" });
-  imageSignatures.add(signature);
-  return 1;
+
+  const added = await registerEntry({
+    blob: file,
+    label: file.name || "Image",
+    signature
+  });
+
+  return added ? 1 : 0;
 }
 
 function canvasToBlob(canvas) {
@@ -164,15 +296,15 @@ async function addPdfFile(file) {
         continue;
       }
 
-      const url = URL.createObjectURL(blob);
-
-      imageEntries.push({
-        url,
-        signature: pageSignature,
-        label: `${file.name || "PDF"} - page ${pageNumber}`
+      const registered = await registerEntry({
+        blob,
+        label: `${file.name || "PDF"} - page ${pageNumber}`,
+        signature: pageSignature
       });
-      imageSignatures.add(pageSignature);
-      added += 1;
+
+      if (registered) {
+        added += 1;
+      }
     }
   } finally {
     await pdfDoc.cleanup();
@@ -196,7 +328,7 @@ async function addFiles(files) {
   for (const file of incoming) {
     if (file.type.startsWith("image/")) {
       supported += 1;
-      added += addImageFile(file);
+      added += await addImageFile(file);
       continue;
     }
 
@@ -229,9 +361,36 @@ async function addFiles(files) {
   } else if (!imageEntries.length) {
     updateDropZoneMessage();
     startBtn.disabled = true;
+  await clearPersistedSlides();
   }
 
   return { added, supported, unsupported, pdfUnsupported };
+}
+
+async function restorePersistedSlides() {
+  const storedSlides = await getPersistedSlides();
+  if (!storedSlides.length) {
+    updateDropZoneMessage();
+    startBtn.disabled = imageEntries.length === 0;
+    return;
+  }
+
+  for (const slide of storedSlides) {
+    if (!slide || !slide.blob || !slide.signature) {
+      continue;
+    }
+
+    await registerEntry({
+      blob: slide.blob,
+      label: slide.label || "Image",
+      signature: slide.signature,
+      persist: false,
+      addedAt: slide.addedAt || Date.now()
+    });
+  }
+
+  updateDropZoneMessage();
+  startBtn.disabled = imageEntries.length === 0;
 }
 
 function syncDelayFromRange() {
@@ -284,6 +443,7 @@ async function startSlideshow() {
   isRunning = true;
   currentIndex = 0;
   startBtn.disabled = true;
+  await clearPersistedSlides();
   loader.classList.add("hidden");
   stage.classList.remove("hidden");
 
@@ -329,7 +489,7 @@ function stopSlideshow() {
   }
 }
 
-function resetGallery() {
+async function resetGallery() {
   stopSlideshow();
   clearTimers();
   revokeAll();
@@ -338,6 +498,7 @@ function resetGallery() {
   currentIndex = 0;
   updateDropZoneMessage();
   startBtn.disabled = true;
+  await clearPersistedSlides();
 }
 
 function preventDefaults(event) {
@@ -412,7 +573,7 @@ fileInput.addEventListener("change", async event => {
 });
 
 startBtn.addEventListener("click", startSlideshow);
-resetBtn.addEventListener("click", resetGallery);
+resetBtn.addEventListener("click", () => { void resetGallery(); });
 
 delayRange.addEventListener("input", syncDelayFromRange);
 delayInput.addEventListener("input", syncDelayFromInput);
@@ -511,6 +672,9 @@ window.addEventListener("beforeunload", () => {
     clearTimeout(statusTimeout);
     statusTimeout = null;
   }
+});
+restorePersistedSlides().catch(error => {
+  console.warn("Could not restore saved slides", error);
 });
 
 if ("serviceWorker" in navigator) {
