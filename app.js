@@ -167,6 +167,57 @@ async function registerEntry({ blob, label, signature, persist = true, addedAt =
   return true;
 }
 
+const DEFAULT_DELAY = 200;
+const delayStorageKey = "lightning-slideshow-delay";
+
+function storeDelay(value) {
+  if (typeof localStorage === "undefined") {
+    return;
+  }
+  try {
+    localStorage.setItem(delayStorageKey, String(value));
+  } catch (error) {
+    console.warn("Could not persist delay value", error);
+  }
+}
+
+function getStoredDelay() {
+  if (typeof localStorage === "undefined") {
+    return null;
+  }
+  try {
+    const raw = localStorage.getItem(delayStorageKey);
+    if (raw === null) {
+      return null;
+    }
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 2000) {
+      return parsed;
+    }
+  } catch (error) {
+    console.warn("Could not read delay value", error);
+  }
+  return null;
+}
+
+function applyDelay(value, { persist = true } = {}) {
+  const clamped = Math.min(2000, Math.max(0, Number(value) || 0));
+  delayRange.value = String(clamped);
+  delayInput.value = String(clamped);
+  if (persist) {
+    storeDelay(clamped);
+  }
+}
+
+function restoreDelaySetting() {
+  const stored = getStoredDelay();
+  if (stored === null) {
+    applyDelay(DEFAULT_DELAY, { persist: false });
+    return;
+  }
+  applyDelay(stored, { persist: false });
+}
+
 function revokeAll() {
   imageEntries.forEach(entry => URL.revokeObjectURL(entry.url));
 }
@@ -699,6 +750,7 @@ window.addEventListener("beforeunload", () => {
     statusTimeout = null;
   }
 });
+restoreDelaySetting();
 restorePersistedSlides().catch(error => {
   console.warn("Could not restore saved slides", error);
 });
