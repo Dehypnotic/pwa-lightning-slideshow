@@ -12,11 +12,11 @@
   <main id="app">
     <section id="loader" class="panel">
       <h1>Lightning Slideshow</h1>
-      <p>Drop images or PDFs, paste with Ctrl + V or the button, or pick files from disk. <strong>Start slideshow</strong> to begin, press Esc to stop.</p>
+      <p>Drop images or PDFs, paste with Ctrl + V or the button, or pick files from disk. <strong>Start</strong> to begin, press Esc to stop.</p>
       <div id="drop-zone" tabindex="0">
         <p>Drop images or PDFs here</p>
         <button id="select-files" type="button">Choose files</button>
-        <input id="file-input" type="file" accept="image/*,application/pdf" multiple aria-label="Choose images or PDFs" />
+        <input id="file-input" type="file" accept="image/*,application/pdf,application/json,.json" multiple aria-label="Choose images, PDFs, or saved slideshows" />
       </div>
       <div class="control-group">
         <label for="delay-range">Delay per image (ms)</label>
@@ -26,9 +26,9 @@
         </div>
       </div>
       <div class="action-row">
-        <button id="start-slideshow" type="button" disabled>Start slideshow</button>
-        <button id="paste-clipboard" class="secondary" type="button">Paste from clipboard</button>
-        <button id="save-gallery" class="secondary" type="button">Save package</button>
+        <button id="start-slideshow" type="button" disabled>Start</button>
+        <button id="paste-clipboard" class="secondary" type="button">Paste</button>
+        <button id="save-gallery" class="secondary" type="button">Save</button>
         <button id="reset-gallery" class="secondary" type="button">Reset</button>
       </div>
     </section>

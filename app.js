@@ -330,17 +330,47 @@ async function handleSaveClick() {
   try {
     const payload = await buildExportPayload();
     const fileContents = JSON.stringify(payload, null, 2);
+    const timestamp = new Date().toISOString().replace(/[:]/g, "-");
+    const suggestedName = `lightning-slideshow-${timestamp}.json`;
+    const messageCount = payload.slides.length;
+
+    if (typeof window.showSaveFilePicker === "function") {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName,
+          types: [
+            {
+              description: "Lightning Slideshow package",
+              accept: {
+                "application/json": [".json"]
+              }
+            }
+          ]
+        });
+        const writable = await handle.createWritable();
+        await writable.write(fileContents);
+        await writable.close();
+        showStatus(`Saved ${messageCount} slide${messageCount === 1 ? "" : "s"}.`);
+        return;
+      } catch (pickerError) {
+        if (pickerError && pickerError.name === "AbortError") {
+          showStatus("Save cancelled.");
+          return;
+        }
+        console.warn("Save picker failed, using download fallback", pickerError);
+      }
+    }
+
     const blob = new Blob([fileContents], { type: "application/json" });
     const url = URL.createObjectURL(blob);
-    const timestamp = new Date().toISOString().replace(/[:]/g, "-");
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `lightning-slideshow-${timestamp}.json`;
+    anchor.download = suggestedName;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    showStatus(`Saved ${payload.slides.length} slide${payload.slides.length === 1 ? "" : "s"}.`);
+    showStatus(`Saved ${messageCount} slide${messageCount === 1 ? "" : "s"}.`);
   } catch (error) {
     console.warn("Could not create slideshow export", error);
     showStatus("Could not create export file.");
