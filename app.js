@@ -70,6 +70,23 @@ async function saveSlideRecord({ signature, label, blob, addedAt }) {
   if (!db) {
     return;
   }
+
+  let bytes;
+  try {
+    bytes = await blob.arrayBuffer();
+  } catch (error) {
+    console.warn("Could not read slide data", error);
+    return;
+  }
+
+  const record = {
+    signature,
+    label,
+    addedAt,
+    bytes,
+    type: blob.type || "application/octet-stream"
+  };
+
   return new Promise(resolve => {
     const tx = db.transaction("slides", "readwrite");
     tx.oncomplete = () => resolve();
@@ -79,13 +96,7 @@ async function saveSlideRecord({ signature, label, blob, addedAt }) {
     };
     const store = tx.objectStore("slides");
     try {
-      store.put({
-        signature,
-        label,
-        addedAt,
-        blob,
-        type: blob.type
-      });
+      store.put(record);
     } catch (error) {
       console.warn("Could not store slide", error);
       resolve();
@@ -361,7 +372,6 @@ async function addFiles(files) {
   } else if (!imageEntries.length) {
     updateDropZoneMessage();
     startBtn.disabled = true;
-  await clearPersistedSlides();
   }
 
   return { added, supported, unsupported, pdfUnsupported };
@@ -376,12 +386,29 @@ async function restorePersistedSlides() {
   }
 
   for (const slide of storedSlides) {
-    if (!slide || !slide.blob || !slide.signature) {
+    if (!slide || !slide.signature) {
+      continue;
+    }
+
+    let blob = null;
+
+    if (slide.blob instanceof Blob) {
+      blob = slide.blob;
+    } else if (slide.bytes) {
+      try {
+        blob = new Blob([slide.bytes], { type: slide.type || "application/octet-stream" });
+      } catch (error) {
+        console.warn("Could not reconstruct slide", error);
+        continue;
+      }
+    }
+
+    if (!blob) {
       continue;
     }
 
     await registerEntry({
-      blob: slide.blob,
+      blob,
       label: slide.label || "Image",
       signature: slide.signature,
       persist: false,
@@ -443,7 +470,6 @@ async function startSlideshow() {
   isRunning = true;
   currentIndex = 0;
   startBtn.disabled = true;
-  await clearPersistedSlides();
   loader.classList.add("hidden");
   stage.classList.remove("hidden");
 
